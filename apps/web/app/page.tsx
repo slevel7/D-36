@@ -4,14 +4,45 @@ type Row={id:string;title:string;body?:string;status?:string;source?:boolean};
 type Me={email:string;department:string;role:string;csrf:string};
 type Version={id:string;body:string;digest:string};
 export default function Home(){
+ const [signingIn,setSigningIn]=useState(false),[showPassword,setShowPassword]=useState(false),[retryAt,setRetryAt]=useState(0),[retrySeconds,setRetrySeconds]=useState(0);
  const [me,setMe]=useState<Me|null>(null),[section,setSection]=useState('Home'),[rows,setRows]=useState<Row[]>([]),[error,setError]=useState(''),[csrf,setCsrf]=useState(''),[menu,setMenu]=useState(false),[selected,setSelected]=useState<{document:Row;versions:Version[];citations:{id:string;version_id:string}[]}|null>(null),[body,setBody]=useState(''),[sources,setSources]=useState<string[]>([]),[evidence,setEvidence]=useState<any>(null);
- async function api(path:string,method='GET',data?:unknown){const response=await fetch('/api'+path,{method,headers:{'Content-Type':'application/json','x-csrf-token':csrf},body:data===undefined?undefined:JSON.stringify(data)});const value=await response.json();if(!response.ok)throw Error(typeof value.detail==='string'?value.detail:'Please check your input');return value;}
+ async function api(path:string,method='GET',data?:unknown){
+   let response:Response;
+   try {response=await fetch('/api'+path,{method,credentials:'same-origin',headers:{'Content-Type':'application/json','x-csrf-token':csrf},body:data===undefined?undefined:JSON.stringify(data)});} catch {throw Error('Cannot reach BrahmaGPT. Check that the local servers are running.');}
+   const value=await response.json().catch(()=>null);
+   if(!response.ok){
+     if(path==='/auth/login'&&response.status===429){const delay=Number(response.headers.get('Retry-After'))||300;setRetryAt(Date.now()+delay*1000);setRetrySeconds(delay);}
+     throw Error(typeof value?.detail==='string'?value.detail:response.status>=500?'The sign-in service is unavailable. Please try again.':'Please check your input');
+   }
+   return value;
+ }
  async function run(fn:()=>Promise<void>){setError('');try{await fn()}catch(e){setError((e as Error).message)}}
  useEffect(()=>{fetch('/api/profile/preferences').then(r=>r.ok?r.json():null).then(p=>{if(p)document.documentElement.dataset.theme=p.theme}).catch(()=>{});fetch('/api/auth/me').then(r=>r.ok?r.json():null).then(u=>{setMe(u);if(u)setCsrf(u.csrf)}).catch(()=>setError('API unavailable. Start the backend.'))},[]);
+ useEffect(()=>{
+   if(!retryAt)return;
+   const update=()=>setRetrySeconds(Math.max(0,Math.ceil((retryAt-Date.now())/1000)));
+   update();const timer=setInterval(update,1000);return()=>clearInterval(timer);
+ },[retryAt]);
+ async function signIn(event:FormEvent<HTMLFormElement>){
+   event.preventDefault();if(signingIn||retrySeconds>0)return;
+   const fields=new FormData(event.currentTarget);setSigningIn(true);setError('');
+   try {
+     await api('/auth/login','POST',{email:String(fields.get('email')||'').trim(),password:fields.get('password')});
+     const user=await api('/auth/me');setMe(user);setCsrf(user.csrf);
+   } catch(error){setError((error as Error).message);}finally{setSigningIn(false);}
+ }
  const kind:Record<string,string>={'Projects':'projects','My Tasks':'tasks','Pension':'pension','Public Grievances':'grievances','Department Tools':'tools','Home':'chats'};
  async function load(name:string){setSection(name);setSelected(null);setEvidence(null);if(kind[name])setRows(await api('/records/'+kind[name]));else if(name==='Documents')setRows(await api('/documents'));else if(name==='Approvals')setRows(await api('/approvals'));else setRows([])}
  async function open(id:string){const d=await api('/documents/'+id);setSelected(d);setBody(d.versions.at(-1)?.body||'')}
- if(!me)return <main className="login"><form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);run(async()=>{await api('/auth/login','POST',{email:f.get('email'),password:f.get('password')});const u=await api('/auth/me');setMe(u);setCsrf(u.csrf)})}}><h1>BrahmaGPT</h1><p>by Singularity</p><p>Internal employee workspace · DEMO</p><label>Official email<input name="email" type="email" required autoComplete="username"/></label><label>Password<input name="password" type="password" required autoComplete="current-password"/></label><button>Sign in</button><p role="alert">{error}</p><small>Account access and password recovery: contact your administrator. Public registration is unavailable.</small></form></main>;
+ if(!me)return <main className="login"><form onSubmit={signIn} aria-busy={signingIn}>
+   <h1>BrahmaGPT</h1><p>by Singularity</p><p>Internal employee workspace ? DEMO</p>
+   <label>Official email<input name="email" type="email" required autoComplete="username" autoCapitalize="none" spellCheck={false}/></label>
+   <label>Password<input name="password" type={showPassword?'text':'password'} required autoComplete="current-password"/></label>
+   <button type="button" aria-pressed={showPassword} onClick={()=>setShowPassword(!showPassword)}>{showPassword?'Hide password':'Show password'}</button>
+   <button type="submit" disabled={signingIn||retrySeconds>0}>{signingIn?'Signing in?':retrySeconds>0?`Try again in ${Math.floor(retrySeconds/60)}:${String(retrySeconds%60).padStart(2,'0')}`:'Sign in'}</button>
+   <p role="alert">{error}</p><small>Use the local demo account from the setup guide. Passwords are case-sensitive; paste without surrounding spaces.</small>
+   <small>Account access and password recovery: contact your administrator. Public registration is unavailable.</small>
+ </form></main>;
  const profile=['My Profile','Setup & Department Access','Connected Apps','AI & Models','Security & Permissions','Notifications','Activity & Usage','Preferences','Help & Support'];
  return <div className="shell"><aside><div className="brand">BrahmaGPT<small>by Singularity</small></div><nav>{['Projects','Department Work','Documents','Customize','My Tasks'].map(name=><button className={section===name?'active':''} key={name} onClick={()=>run(()=>load(name))}>{name}</button>)}<hr/><button onClick={()=>run(()=>load('Home'))}>＋ New Chat</button><button onClick={()=>run(()=>load('Home'))}>Search Chats</button><small>Recent conversations</small>{section==='Home'&&rows.map(r=><p key={r.id}>{r.title}</p>)}</nav><div className="account"><button aria-label="Open account menu" onClick={()=>setMenu(!menu)}>◯</button>{menu&&<div className="popover">{profile.map(name=><button key={name} onClick={()=>{setMenu(false);run(()=>load(name))}}>{name}</button>)}{me.role==='platform_admin'&&<button onClick={()=>run(()=>load('Administration'))}>Administration</button>}<button onClick={()=>run(async()=>{await api('/auth/logout','POST');setMe(null)})}>Sign out</button></div>}</div></aside><div className="workspace"><header><span>Authorised workspace</span><div>{me.department} / DEMO Division <button aria-label="Notifications" onClick={()=>run(()=>load('Notifications'))}>♧</button><button aria-label="Display preferences" onClick={()=>run(()=>load('Preferences'))}>⋯</button></div></header><main><p className="notice">DEMO · Fictional internal workspace · AI: deterministic excerpts only</p>{error&&<p role="alert" className="error">{error}</p>}
  {section==='Home'?<div className="welcome"><h1>How can Brahma help?</h1><p>Search authorised work and prepare a source-grounded draft.</p><p>Open Documents to select source passages and create an editable office note.</p><form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);run(async()=>{await api('/records/chats','POST',{title:String(f.get('title')),body:'DEMO: Request saved. Independent AI response unavailable; use Documents for excerpt-based drafting.'});await load('Home')})}}><input name="title" placeholder="Ask Brahma…" aria-label="Message" required/><button>Save request</button></form><small>Hosted AI is not configured. No legal or administrative facts are inferred.</small></div>:<><h1>{section}</h1>

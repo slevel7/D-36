@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import math
 import os
 import secrets
 import time
@@ -7,7 +8,7 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import BigInteger, ForeignKey, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -86,6 +87,11 @@ class Credentials(BaseModel):
     email: str = Field(max_length=254)
     password: str = Field(min_length=1, max_length=256)
 
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
 
 @app.get("/health")
 def health():
@@ -102,7 +108,12 @@ def login(data: Credentials, response: Response, session: Session = Depends(db))
         )
     ).all()
     if len(attempts) >= 5:
-        raise HTTPException(429, "Try again in five minutes")
+        retry_after = max(1, math.ceil(sorted(a.created for a in attempts)[-5] + 300 - time.time()))
+        raise HTTPException(
+            429,
+            "Too many failed sign-in attempts. Please wait before trying again.",
+            headers={"Retry-After": str(retry_after)},
+        )
     user = session.scalar(select(User).where(User.email == data.email.lower()))
     valid = verify(data.password, user.password if user else DUMMY_PASSWORD)
     if not user or not valid:

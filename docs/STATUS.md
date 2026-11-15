@@ -2,7 +2,7 @@
 
 | Area | Status | Verification |
 |---|---|---|
-| Auth, document evidence, review, export | REAL API | 5 pytest scenarios pass on SQLite |
+| Auth, document evidence, review, export | REAL API | 6 pytest scenarios pass on SQLite |
 | AI drafting | DEMO | Excerpts from supplied fictional sources only |
 | UI | BUILD VERIFIED | Next.js production build and TypeScript pass; no browser |
 | PostgreSQL/Redis/MinIO | NOT RUN | Compose configuration; Docker absent |

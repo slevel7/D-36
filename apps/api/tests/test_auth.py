@@ -278,3 +278,43 @@ def test_record_permissions_and_throttle():
     )
     assert c.get("/records/tasks").json()[0]["title"] == "DEMO follow-up edited"
     assert c.get("/records/unknown").status_code == 404
+
+
+def test_login_retry_after_expiry_and_email_normalization(monkeypatch):
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(main.time, "time", lambda: clock[0])
+    c = TestClient(main.app)
+    for _ in range(5):
+        assert (
+            c.post(
+                "/auth/login", json={"email": "employee@example.test", "password": "wrong"}
+            ).status_code
+            == 401
+        )
+    blocked = c.post(
+        "/auth/login", json={"email": " EMPLOYEE@EXAMPLE.TEST ", "password": "Test-password-123"}
+    )
+    assert blocked.status_code == 429
+    assert blocked.headers["retry-after"] == "300"
+    clock[0] += 299
+    blocked = c.post(
+        "/auth/login", json={"email": "employee@example.test", "password": "Test-password-123"}
+    )
+    assert blocked.status_code == 429
+    assert blocked.headers["retry-after"] == "1"
+    clock[0] += 2
+    assert (
+        c.post(
+            "/auth/login",
+            json={"email": " EMPLOYEE@EXAMPLE.TEST ", "password": "Test-password-123"},
+        ).status_code
+        == 200
+    )
+    assert c.get("/auth/me").status_code == 200
+    with Session(main.engine) as db:
+        assert (
+            len(
+                db.scalars(main.select(main.Audit).where(main.Audit.action == "login_failed")).all()
+            )
+            == 5
+        )
