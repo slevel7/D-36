@@ -72,7 +72,9 @@ def current(request: Request, session: Session = Depends(db)):
     user = session.get(User, login.user_id)
     if not user:
         raise HTTPException(401, "Session revoked")
-    return user
+    from workspace import resolve_actor
+
+    return resolve_actor(user, token, session)
 
 
 @asynccontextmanager
@@ -389,7 +391,21 @@ def save_version(
     document = document_access(id, user, session)
     if document.owner != user.id or document.source:
         raise HTTPException(403, "Source originals are immutable")
+    previous = session.scalar(
+        select(Version).where(Version.document_id == id).order_by(Version.created.desc())
+    )
     version = add_version(document, data.body, session)
+    if previous:
+        for c in session.scalars(select(Citation).where(Citation.version_id == previous.id)):
+            if c.excerpt in data.body:
+                session.add(
+                    Citation(
+                        version_id=version.id,
+                        source_version=c.source_version,
+                        paragraph=c.paragraph,
+                        excerpt=c.excerpt,
+                    )
+                )
     session.add(Audit(actor=user.id, action="document:revise:" + id))
     session.commit()
     session.refresh(version)
@@ -435,6 +451,18 @@ def draft(data: DraftInput, user: User = Depends(current), session: Session = De
                 excerpt=v.body.split("\n")[0],
             )
         )
+    from files import DraftSuggestion
+
+    for category, text in [
+        ("Process improvement", "Use a completeness checklist before forwarding the draft."),
+        ("Missing facts", "Verify the intended recipients, authority and reference number."),
+        ("Follow-up", "Assign a human owner to request missing supporting records."),
+    ]:
+        session.add(
+            DraftSuggestion(
+                document_id=document.id, category=category, text=text, source_version=sources[0].id
+            )
+        )
     session.add(Audit(actor=user.id, action="agent:demo_draft:" + document.id))
     session.commit()
     return {
@@ -456,15 +484,30 @@ def citation(id: str, user: User = Depends(current), session: Session = Depends(
     document_access(parent.document_id, user, session)
     source = session.get(Version, c.source_version)
     document = document_access(source.document_id, user, session)
+    from files import FileObject, Passage
+
+    passage = session.scalar(
+        select(Passage).where(Passage.version_id == source.id, Passage.paragraph == c.paragraph)
+    )
+    original_file = session.scalar(select(FileObject).where(FileObject.version_id == source.id))
     return {
+        "page": passage.page if passage else None,
+        "file_sha256": original_file.digest if original_file else source.digest,
+        "original_url": "/api/files/versions/" + source.id + "/original" if original_file else None,
+        "extraction_method": passage.method if passage else "Manually entered text",
+        "confidence": passage.confidence
+        if passage
+        else "Text anchor; source requires human verification",
         "document": document.title,
         "version": source.id,
         "sha256": source.digest,
         "paragraph": c.paragraph,
         "excerpt": c.excerpt,
         "body": source.body,
-        "anchor": "paragraph-1",
-        "limitation": "Text paragraph anchor; no pagination",
+        "anchor": "paragraph-" + str(c.paragraph),
+        "limitation": "PDF page and extracted passage"
+        if passage and passage.page
+        else "Text paragraph anchor; no pagination",
     }
 
 
@@ -493,8 +536,33 @@ def submit(
         raise HTTPException(422, "Separate authorised reviewer required")
     if not session.scalar(select(Citation).where(Citation.version_id == id)):
         raise HTTPException(422, "Grounded citations required; revised drafts must be regrounded")
+    cited = session.scalars(select(Citation).where(Citation.version_id == id)).all()
+    prefix, marker, recommendations = version.body.partition("Recommendations (suggestions):")
+    if not marker:
+        raise HTTPException(422, "Grounded template and explicit recommendations section required")
+    allowed_headings = {
+        "AI-assisted draft — requires review",
+        "DEMO deterministic excerpt compilation; no legal verification.",
+        document.title,
+        "Sourced facts",
+        "",
+    }
+    for line in prefix.splitlines():
+        if line not in allowed_headings and not (
+            line.startswith("[") and any(line.split("] ", 1)[-1] == c.excerpt for c in cited)
+        ):
+            raise HTTPException(422, "Source not verified: factual claim does not match evidence")
+    for c in cited:
+        if c.excerpt not in version.body:
+            raise HTTPException(422, "Cited passage is missing from this version")
+        original = session.get(Version, c.source_version)
+        document_access(original.document_id, user, session)
+        document_access(original.document_id, reviewer, session)
     approval = Approval(version_id=id, requester=user.id, reviewer=reviewer.id)
     session.add(approval)
+    from workspace import notify
+
+    notify(session, reviewer.id, "approvals", "Document submitted for your review", "/approvals")
     session.add(Audit(actor=user.id, action="approval:submit:" + id))
     session.commit()
     session.refresh(approval)
@@ -503,9 +571,29 @@ def submit(
 
 @app.get("/approvals")
 def approvals(user: User = Depends(current), session: Session = Depends(db)):
-    return session.scalars(
+    results = []
+    for item in session.scalars(
         select(Approval).where((Approval.requester == user.id) | (Approval.reviewer == user.id))
-    ).all()
+    ):
+        version = session.get(Version, item.version_id)
+        try:
+            document = document_access(version.document_id, user, session)
+            get_document(document.id, user, session)
+        except HTTPException:
+            continue
+        results.append(
+            {
+                "id": item.id,
+                "version_id": item.version_id,
+                "document_id": document.id,
+                "title": document.title,
+                "status": item.status,
+                "comment": item.comment,
+                "reviewer": item.reviewer,
+                "requester": item.requester,
+            }
+        )
+    return results
 
 
 class Decision(BaseModel):
@@ -529,7 +617,30 @@ def decide(id: str, data: Decision, user: User = Depends(current), session: Sess
     for c in session.scalars(select(Citation).where(Citation.version_id == version.id)):
         source_version = session.get(Version, c.source_version)
         document_access(source_version.document_id, user, session)
+    latest = session.scalar(
+        select(Version)
+        .where(Version.document_id == version.document_id)
+        .order_by(Version.created.desc())
+    )
+    if data.status == "APPROVED" and latest.id != version.id:
+        raise HTTPException(409, "A newer revision exists. Submit the current version for review.")
+    from files import ReviewEvent
+
+    session.add(
+        ReviewEvent(
+            approval_id=approval.id, actor=user.id, status=data.status, comment=data.comment
+        )
+    )
     approval.status, approval.comment = data.status, data.comment
+    from workspace import notify
+
+    notify(
+        session,
+        approval.requester,
+        "approvals",
+        "Document review: " + data.status.replace("_", " ").lower(),
+        "/documents/" + version.document_id,
+    )
     session.add(Audit(actor=user.id, action="approval:" + data.status + ":" + id))
     session.commit()
     return {"status": data.status}
@@ -579,8 +690,34 @@ def export(id: str, format: str, user: User = Depends(current), session: Session
                 y -= 14
         pdf.save()
         mime = "application/pdf"
+    elif format == "xlsx":
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Review document"
+        for line in text.splitlines():
+            # Store content as literal text, never spreadsheet formulas.
+            cell = sheet.cell(sheet.max_row + 1, 1, line)
+            cell.data_type = "s"
+        sheet.column_dimensions["A"].width = 110
+        workbook.save(out)
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif format == "pptx":
+        from pptx import Presentation
+        from pptx.util import Pt
+
+        presentation = Presentation()
+        for offset in range(0, len(text.splitlines()), 12):
+            slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+            slide.shapes.title.text = "Document review / evidence"
+            slide.placeholders[1].text = "\n".join(text.splitlines()[offset : offset + 12])
+            for paragraph in slide.placeholders[1].text_frame.paragraphs:
+                paragraph.font.size = Pt(15)
+        presentation.save(out)
+        mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     else:
-        raise HTTPException(422, "Supported: docx, pdf")
+        raise HTTPException(422, "Supported: docx, pdf, xlsx, pptx")
     session.add(Audit(actor=user.id, action="export:" + id))
     session.commit()
     return Response(
@@ -687,3 +824,15 @@ def search(q: str = "", user: User = Depends(current), session: Session = Depend
             }
         )
     return results
+
+
+# Register after core models are defined; existing authenticated routes are preserved.
+def install_workspace():
+    from files import router as files_router
+    from workspace import router
+
+    app.include_router(router)
+    app.include_router(files_router)
+
+
+install_workspace()

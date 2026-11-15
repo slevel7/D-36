@@ -29,6 +29,9 @@ def seed():
                     )
                 )
         session.commit()
+        from workspace import seed_workspace
+
+        seed_workspace(session)
 
 
 if __name__ == "__main__":

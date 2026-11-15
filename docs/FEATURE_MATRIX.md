@@ -1,29 +1,24 @@
-# Feature matrix
+# Recovery feature matrix
 
-| Capability | State | Evidence / remaining work |
+Recovery baseline fafcc92 is preserved. This is not a completion declaration. See ACCEPTANCE_MATRIX.md for all 24 criteria.
+
+| Area | State | Evidence / remaining work |
 |---|---|---|
-| FastAPI + SQLAlchemy | WORKING locally | SQLite test database; PostgreSQL config unverified |
-| Login, salted scrypt, revocable httpOnly cookie, CSRF | WORKING locally | pytest authentication scenario |
-| Department scoping, admin denial | WORKING limited | Cross-department document/citation/export tests; source revocation tested; full ACL/classification absent |
-| Next.js monochrome workspace | BUILD VERIFIED | Typecheck + production build passed; browser unavailable |
-| Projects, Tasks, Pension, Grievances | BASIC RECORDS ONLY | Persistent create/list; full lifecycle, assignments, comments, reminders not done |
-| Immutable source text, draft versions | WORKING locally | Originals cannot be edited; revised drafts require regrounding |
-| Grounded AI drafting | DEMO | Explicit excerpt compilation from two distinct sources; no LLM/legal verification |
-| Citations | WORKING API | Exact source version/hash/paragraph and excerpt; browser click-through not yet tested |
-| Approvals | WORKING limited | Separate designated reviewer; approve/return/reject; no configurable multistep workflows |
-| DOCX/PDF export | WORKING API | Review copies only, evidence appendix, ZIP/PDF signatures tested |
-| Upload/OCR/preview, PPTX/XLSX | NOT DONE | Text entry only; no file upload endpoint |
-| Profile | PARTIAL | Identity display, current-session logout, backend-persisted theme preferences; nine complete sections not done |
-| Customize | PARTIAL | Discovery navigation only; no persistent favourites or recents |
-| Chat and contextual Brahma | DEMO/PARTIAL | Requests stored; no autonomous or provider AI response |
-| Admin | PARTIAL | Protected audit API and tool creation; no full management console |
-| Access requests / memberships | NOT DONE | One department per user in current schema |
-| Outreach | NOT DONE | No simulated or real sends |
-| Notifications / worker | NOT DONE | No fake counters or deliveries |
-| External connectors / embeddings | REQUIRES CREDENTIALS + IMPLEMENTATION | No connector is functional |
-| Docker PostgreSQL/Redis/MinIO | CONFIGURED, NOT RUN | Docker unavailable on host |
-| Alembic initial schema | WORKING SQLite | upgrade head + check passed; PostgreSQL not run |
-| Browser E2E, visual regression | NOT RUN | No browser available |
-| Lotus | MISSING ASSET | Supplied original unavailable in inspected paths |
-
-A working API slice does not imply completion of the master specification. The repository is an incremental foundation.
+| Reference/lotus | INSPECTED + IN USE | Supplied files preserved; grayscale application uses exact SVG geometry |
+| Shell | WORKING core | Correct hierarchy, avatar, membership selector, search/inbox, mobile drawer; browser tests. Domain routes still under recovery |
+| Profile | WORKING core; advanced gaps | Nine real panels/gates, edit/avatar/private PDF, membership requests, security, activity, preferences, support. Quiet scheduling, delegation and translations absent |
+| Customize | WORKING core | Server-filtered tabs; favourites/order/dismissals/usage/clear; real counts, requests and shortcuts; API/browser tests |
+| Memberships | WORKING API | Request/decision/revoke/expiry and per-session scope isolation tested |
+| Chat | REAL history; no live AI | Multi-turn messages and history actions; explicit provider-unavailable message |
+| Original files | WORKING API + browser | PDF/DOCX/TXT validation, original bytes/hash and page/paragraph mapping. OCR/object storage absent |
+| Drafting | DEMO | Explicit excerpts, immutable editable versions, retained evidence, separate recommendations/gaps; no legal verification |
+| Citations/recommendations/diff | WORKING core | Exact original PDF/page/hash; source revocation, accepted suggestion revision and compare tested |
+| Review | WORKING single-reviewer | Human return/resubmit/approve/reject, self/stale denial, immutable review events and notifications. Configurable multistep absent |
+| Exports | REAL review copies | DOCX/PDF browser downloads; four file containers tested via API. Final issuance absent |
+| Projects/tasks/cases | RECOVERY PENDING | Existing generic code preserved at /legacy; domain replacements not complete |
+| Outreach | NOT IMPLEMENTED | No sends claimed |
+| Admin | PARTIAL REAL | Access decisions, support triage, protected audit; configuration builder absent |
+| External providers | NOT CONFIGURED | Requests persist; no OAuth/sync/send claimed |
+| Infrastructure | PARTIAL / NOT RUN | SQLite migrations verified; Docker/PostgreSQL/Redis worker/object storage unverified |
+| Browser | WORKING | Baseline and four recovery scenarios passed; screenshots saved |
+| Production readiness | NOT READY | Remaining acceptance failures and security/classification review required |

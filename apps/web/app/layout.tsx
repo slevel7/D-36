@@ -1,3 +1,5 @@
-import './style.css';
-export const metadata = { title: 'BrahmaGPT · Singularity', description: 'Internal authorised employee workspace' };
-export default function Layout({children}:{children:React.ReactNode}) { return <html lang="en"><body>{children}</body></html>; }
+﻿import './style.css';
+import {AppShell} from '../components/app-shell';
+import {SessionProvider} from '../components/session-provider';
+export const metadata={title:'BrahmaGPT | Singularity',description:'Internal authorised employee workspace',icons:{icon:'/brand/lotus-black.svg'}};
+export default function Layout({children}:{children:React.ReactNode}){return <html lang="en" suppressHydrationWarning><body><SessionProvider><AppShell>{children}</AppShell></SessionProvider></body></html>;}

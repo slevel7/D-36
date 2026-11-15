@@ -51,3 +51,7 @@ See [walkthrough](docs/WALKTHROUGH.md), [security](docs/SECURITY.md), [limitatio
 ## Skip login for the local demo
 
 With the existing demo database seeded, start the API using `./scripts/start_demo.ps1`, and start the web app normally. This sets APP_ENV=development and DEMO_AUTO_LOGIN=true only for the local API process. Opening the web page automatically creates a demo employee session; no password entry is required. Normal authentication remains the default when these flags are absent. Do not enable this option for real data or a publicly exposed environment. Stop this API and restart without DEMO_AUTO_LOGIN to restore password entry.
+
+## Corrective recovery
+
+Profile: /profile; Customize: /customize; supplied lotus and inspected reference anatomy in grayscale. Existing UI is retained at /legacy during domain replacement. See docs/RECOVERY_GAP_AUDIT.md, docs/ACCEPTANCE_MATRIX.md and docs/UX_SPEC.md. Backend: `python -m pytest -q`. From apps/web: `npx playwright test e2e/recovery.spec.ts`; set E2E_PASSWORD to the local seeded password for `npx playwright test e2e/documents.spec.ts` with a separate reviewer. No local password is embedded in browser tests.

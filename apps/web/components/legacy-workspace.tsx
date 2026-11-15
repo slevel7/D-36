@@ -1,0 +1,86 @@
+'use client';
+import {useEffect,useState,FormEvent} from 'react';
+type Row={id:string;title:string;body?:string;status?:string;source?:boolean};
+type Me={email:string;department:string;role:string;csrf:string;local_demo_access?:boolean};
+type Version={id:string;body:string;digest:string};
+export default function Home(){
+ const [loadingSession,setLoadingSession]=useState(true);
+ const [signingIn,setSigningIn]=useState(false),[showPassword,setShowPassword]=useState(false),[retryAt,setRetryAt]=useState(0),[retrySeconds,setRetrySeconds]=useState(0);
+ const [me,setMe]=useState<Me|null>(null),[section,setSection]=useState('Home'),[rows,setRows]=useState<Row[]>([]),[error,setError]=useState(''),[csrf,setCsrf]=useState(''),[menu,setMenu]=useState(false),[selected,setSelected]=useState<{document:Row;versions:Version[];citations:{id:string;version_id:string}[]}|null>(null),[body,setBody]=useState(''),[sources,setSources]=useState<string[]>([]),[evidence,setEvidence]=useState<any>(null);
+ async function api(path:string,method='GET',data?:unknown){
+   let response:Response;
+   try {response=await fetch('/api'+path,{method,credentials:'same-origin',headers:{'Content-Type':'application/json','x-csrf-token':csrf},body:data===undefined?undefined:JSON.stringify(data)});} catch {throw Error('Cannot reach BrahmaGPT. Check that the local servers are running.');}
+   const value=await response.json().catch(()=>null);
+   if(!response.ok){
+     if(path==='/auth/login'&&response.status===429){const delay=Number(response.headers.get('Retry-After'))||300;setRetryAt(Date.now()+delay*1000);setRetrySeconds(delay);}
+     throw Error(typeof value?.detail==='string'?value.detail:response.status>=500?'The sign-in service is unavailable. Please try again.':'Please check your input');
+   }
+   return value;
+ }
+ async function run(fn:()=>Promise<void>){setError('');try{await fn()}catch(e){setError((e as Error).message)}}
+ useEffect(()=>{
+   const controller=new AbortController();
+   const options={credentials:'same-origin' as const,signal:controller.signal};
+   async function restoreSession(){
+     try {
+       let response=await fetch('/api/auth/me',options);
+       if(response.status===401){
+         const demo=await fetch('/api/auth/demo',{...options,method:'POST',headers:{'x-brahma-demo':'local-preview'}});
+         if(demo.ok)response=await fetch('/api/auth/me',options);
+         else if(demo.status!==404)throw Error('Local demo session could not start. Check the API setup.');
+       }
+       if(response.ok){
+         const user=await response.json();setMe(user);setCsrf(user.csrf);
+         const preferences=await fetch('/api/profile/preferences',options);
+         if(preferences.ok)document.documentElement.dataset.theme=(await preferences.json()).theme;
+       }else if(response.status!==401)throw Error('The sign-in service is unavailable.');
+     }catch(error){if(!controller.signal.aborted)setError((error as Error).message);}
+     finally{if(!controller.signal.aborted)setLoadingSession(false);}
+   }
+   restoreSession();return()=>controller.abort();
+ },[]);
+ useEffect(()=>{
+   if(!retryAt)return;
+   const update=()=>setRetrySeconds(Math.max(0,Math.ceil((retryAt-Date.now())/1000)));
+   update();const timer=setInterval(update,1000);return()=>clearInterval(timer);
+ },[retryAt]);
+ async function signIn(event:FormEvent<HTMLFormElement>){
+   event.preventDefault();if(signingIn||retrySeconds>0)return;
+   const fields=new FormData(event.currentTarget);setSigningIn(true);setError('');
+   try {
+     await api('/auth/login','POST',{email:String(fields.get('email')||'').trim(),password:fields.get('password')});
+     const user=await api('/auth/me');setMe(user);setCsrf(user.csrf);
+   } catch(error){setError((error as Error).message);}finally{setSigningIn(false);}
+ }
+ const kind:Record<string,string>={'Projects':'projects','My Tasks':'tasks','Pension':'pension','Public Grievances':'grievances','Department Tools':'tools','Home':'chats'};
+ async function load(name:string){setSection(name);setSelected(null);setEvidence(null);if(kind[name])setRows(await api('/records/'+kind[name]));else if(name==='Documents')setRows(await api('/documents'));else if(name==='Approvals')setRows(await api('/approvals'));else setRows([])}
+ async function open(id:string){const d=await api('/documents/'+id);setSelected(d);setBody(d.versions.at(-1)?.body||'')}
+ if(loadingSession)return <main className="login"><p role="status">Opening BrahmaGPT...</p></main>;
+ if(!me)return <main className="login"><form onSubmit={signIn} aria-busy={signingIn}>
+   <h1>BrahmaGPT</h1><p>by Singularity</p><p>Internal employee workspace - DEMO</p>
+   <label>Official email<input name="email" type="email" required autoComplete="username" autoCapitalize="none" spellCheck={false}/></label>
+   <label>Password<input name="password" type={showPassword?'text':'password'} required autoComplete="current-password"/></label>
+   <button type="button" aria-pressed={showPassword} onClick={()=>setShowPassword(!showPassword)}>{showPassword?'Hide password':'Show password'}</button>
+   <button type="submit" disabled={signingIn||retrySeconds>0}>{signingIn?'Signing in...':retrySeconds>0?`Try again in ${Math.floor(retrySeconds/60)}:${String(retrySeconds%60).padStart(2,'0')}`:'Sign in'}</button>
+   <p role="alert">{error}</p><small>Use the local demo account from the setup guide. Passwords are case-sensitive; paste without surrounding spaces.</small>
+   <small>Account access and password recovery: contact your administrator. Public registration is unavailable.</small>
+ </form></main>;
+ const profile=['My Profile','Setup & Department Access','Connected Apps','AI & Models','Security & Permissions','Notifications','Activity & Usage','Preferences','Help & Support'];
+ return <div className="shell"><aside><div className="brand">BrahmaGPT<small>by Singularity</small></div><nav>{['Projects','Department Work','Documents','Customize','My Tasks'].map(name=><button className={section===name?'active':''} key={name} onClick={()=>run(()=>load(name))}>{name}</button>)}<hr/><button onClick={()=>run(()=>load('Home'))}>＋ New Chat</button><button onClick={()=>run(()=>load('Home'))}>Search Chats</button><small>Recent conversations</small>{section==='Home'&&rows.map(r=><p key={r.id}>{r.title}</p>)}</nav><div className="account"><button aria-label="Open account menu" onClick={()=>setMenu(!menu)}>◯</button>{menu&&<div className="popover">{profile.map(name=><button key={name} onClick={()=>{setMenu(false);run(()=>load(name))}}>{name}</button>)}{me.role==='platform_admin'&&<button onClick={()=>run(()=>load('Administration'))}>Administration</button>}<button onClick={()=>run(async()=>{await api('/auth/logout','POST');setMe(null)})}>Sign out</button></div>}</div></aside><div className="workspace"><header><span>{me.local_demo_access?'Local demo session - employee':'Authorised workspace'}</span><div>{me.department} / DEMO Division <button aria-label="Notifications" onClick={()=>run(()=>load('Notifications'))}>♧</button><button aria-label="Display preferences" onClick={()=>run(()=>load('Preferences'))}>⋯</button></div></header><main><p className="notice">DEMO · Fictional internal workspace · AI: deterministic excerpts only</p>{error&&<p role="alert" className="error">{error}</p>}
+ {section==='Home'?<div className="welcome"><h1>How can Brahma help?</h1><p>Search authorised work and prepare a source-grounded draft.</p><p>Open Documents to select source passages and create an editable office note.</p><form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);run(async()=>{await api('/records/chats','POST',{title:String(f.get('title')),body:'DEMO: Request saved. Independent AI response unavailable; use Documents for excerpt-based drafting.'});await load('Home')})}}><input name="title" placeholder="Ask Brahma…" aria-label="Message" required/><button>Save request</button></form><small>Hosted AI is not configured. No legal or administrative facts are inferred.</small></div>:<><h1>{section}</h1>
+ {section==='Department Work'&&<div className="grid">{['Pension','Public Grievances','Outreach Agent','Department Tools'].map(n=><button className="tile" key={n} onClick={()=>run(()=>load(n))}>{n}<small>{n==='Outreach Agent'?'Not implemented · no messages sent':'Open departmental records'}</small></button>)}</div>}
+ {(kind[section]||section==='Documents')&&!selected&&<><form className="editor" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;const f=new FormData(form);run(async()=>{await api(section==='Documents'?'/documents?source='+!!f.get('source'):'/records/'+kind[section],'POST',{title:f.get('title'),body:f.get('body')});form.reset();await load(section)})}}><label>Title<input name="title" required maxLength={200}/></label><label>{section==='Documents'?'Document text (plain text paragraph anchors)':'Description'}<textarea name="body" required/></label>{section==='Documents'&&<label><input type="checkbox" name="source"/> Immutable reference source</label>}<button>Create {section==='Documents'?'document':'record'}</button></form><div className="records">{rows.length===0&&<p>No records yet. Create the first one above.</p>}{rows.map(row=><article key={row.id}>{section==='Documents'&&row.source&&<input type="checkbox" aria-label={'Use source '+row.title} checked={sources.includes(row.id)} onChange={e=>setSources(e.target.checked?[...sources,row.id]:sources.filter(id=>id!==row.id))}/>}<button onClick={()=>section==='Documents'?run(()=>open(row.id)):setBody(row.body||'')}>{row.title}</button><small>{row.source?'Reference source':row.status||'Draft'}</small>{row.body&&<p>{row.body}</p>}</article>)}</div>{section==='Documents'&&<button disabled={sources.length<2} onClick={()=>run(async()=>{const result=await api('/agent/draft','POST',{title:'Office note — review required',source_ids:sources});await open(result.id)})}>Draft office note from {sources.length} selected sources</button>}</>}
+ {selected&&<div className="editor"><button onClick={()=>{setSelected(null);setEvidence(null)}}>← Library</button><h2>{selected.document.title}</h2><label>Document content<textarea className="document" value={body} onChange={e=>setBody(e.target.value)} readOnly={selected.document.source}/></label>{!selected.document.source&&<button onClick={()=>run(async()=>{await api('/documents/'+selected.document.id+'/versions','POST',{title:selected.document.title,body});await open(selected.document.id)})}>Save immutable revision</button>}<h3>Versions and evidence</h3>{selected.versions.map((v,i)=><article key={v.id}><button onClick={()=>setBody(v.body)}>View version {i+1}</button><small>SHA256 {v.digest.slice(0,16)}…</small>{selected.citations.filter(c=>c.version_id===v.id).map((c,j)=><button key={c.id} onClick={()=>run(async()=>setEvidence(await api('/citations/'+c.id)))}>Source [{j+1}]</button>)}<a href={'/api/versions/'+v.id+'/export/docx'}>DOCX review copy</a> <a href={'/api/versions/'+v.id+'/export/pdf'}>PDF review copy</a><button onClick={()=>run(async()=>{await api('/versions/'+v.id+'/submit','POST',{reviewer_email:'reviewer@example.test'});await load('Approvals')})}>Submit to DEMO reviewer</button></article>)}{evidence&&<section className="evidence"><h3>{evidence.document}</h3><p>{evidence.limitation}</p><p>Version {evidence.version}</p><mark id="paragraph-1">{evidence.excerpt}</mark><pre>{evidence.body}</pre></section>}</div>}
+ {section==='Approvals'&&rows.map((r:any)=><article key={r.id}><p>{r.status} · version {r.version_id}</p>{['APPROVED','CHANGES_REQUESTED','REJECTED'].map(status=><button key={status} onClick={()=>run(async()=>{await api('/approvals/'+r.id+'/decide','POST',{status,comment:'Reviewed in DEMO workflow'});await load('Approvals')})}>{status.replaceAll('_',' ')}</button>)}</article>)}
+ {section==='Customize'&&<><div className="tabs">{['Recommended','Favourites','Recently Used','All Tools','Connected Tools','Department Tools'].map(n=><button key={n} onClick={()=>setBody(n)}>{n}</button>)}</div><p>{body||'Recommended'} · Catalogue foundation; favourites and tracking are not implemented.</p><button onClick={()=>run(()=>load('Documents'))}>Document drafting · Available</button><p>External tools · Requires credentials</p></>}
+ {section==='My Profile'&&<p>{me.email}<br/>{me.role}<br/>{me.department}</p>}
+ {section==='Preferences'&&<div className="tabs">{['Light','Dark','System'].map(t=><button key={t} onClick={()=>{run(async()=>{await api('/profile/preferences','PUT',{theme:t.toLowerCase(),language:'en',display_name:''});document.documentElement.dataset.theme=t.toLowerCase()})}}>{t}</button>)}</div>}
+ {section==='Security & Permissions'&&<p>Revocable eight-hour server session. Password recovery and MFA are not implemented. Sign out revokes this session.</p>}
+ {section==='Connected Apps'&&<p>No connections configured. OAuth and external sends are unavailable.</p>}
+ {section==='AI & Models'&&<p>DEMO deterministic excerpt compiler. No LLM or embedding provider configured. Citations are paragraph anchors to immutable source versions.</p>}
+ {section==='Help & Support'&&<p>See repository docs/WALKTHROUGH.md and docs/KNOWN_LIMITATIONS.md.</p>}
+ {['Notifications','Activity & Usage','Setup & Department Access','Administration','Outreach Agent'].includes(section)&&<p>This module is not implemented in this foundation milestone.</p>}
+ </>}
+ {section!=='Home'&&<footer><strong>Brahma</strong><span> Context: {section} · DEMO</span><button onClick={()=>run(()=>load('Documents'))}>Search sources & draft</button><button onClick={()=>run(()=>load('Approvals'))}>Approval queue</button></footer>}
+ </main></div></div>
+}

@@ -10,3 +10,5 @@ playwright-report/
 
 *.tsbuildinfo
 .ruff_cache/
+
+.local/
