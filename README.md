@@ -47,3 +47,7 @@ Current scope: session authentication, department-scoped basic records, immutabl
 The supplied lotus file was not present. Text branding is used until the original asset is provided; no replacement silhouette is fabricated. No LLM, OAuth, government portal, messaging, calendar or production integration is claimed.
 
 See [walkthrough](docs/WALKTHROUGH.md), [security](docs/SECURITY.md), [limitations](docs/KNOWN_LIMITATIONS.md), and [status](docs/STATUS.md).
+
+## Skip login for the local demo
+
+With the existing demo database seeded, start the API using `./scripts/start_demo.ps1`, and start the web app normally. This sets APP_ENV=development and DEMO_AUTO_LOGIN=true only for the local API process. Opening the web page automatically creates a demo employee session; no password entry is required. Normal authentication remains the default when these flags are absent. Do not enable this option for real data or a publicly exposed environment. Stop this API and restart without DEMO_AUTO_LOGIN to restore password entry.

@@ -318,3 +318,39 @@ def test_login_retry_after_expiry_and_email_normalization(monkeypatch):
             )
             == 5
         )
+
+
+def test_local_demo_access_is_explicit_and_scoped(monkeypatch):
+    monkeypatch.delenv("DEMO_AUTO_LOGIN", raising=False)
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    local = TestClient(main.app, client=("127.0.0.1", 50000))
+    headers = {"x-brahma-demo": "local-preview"}
+    assert local.post("/auth/demo", headers=headers).status_code == 404
+    monkeypatch.setenv("DEMO_AUTO_LOGIN", "true")
+    monkeypatch.setenv("APP_ENV", "development")
+    assert local.post("/auth/demo").status_code == 404
+    remote = TestClient(main.app, client=("203.0.113.1", 50000))
+    assert remote.post("/auth/demo", headers=headers).status_code == 404
+    response = local.post("/auth/demo", headers=headers)
+    assert response.status_code == 200
+    me = local.get("/auth/me").json()
+    assert me["email"] == "employee@example.test"
+    assert me["role"] == "employee"
+    assert me["local_demo_access"] is True
+    assert local.get("/admin/audit").status_code == 403
+    assert local.post("/records/tasks", json={"title": "Without CSRF"}).status_code == 403
+    assert (
+        local.post(
+            "/records/tasks",
+            headers={"x-csrf-token": me["csrf"]},
+            json={"title": "Local demo task"},
+        ).status_code
+        == 200
+    )
+    assert local.post("/auth/logout", headers={"x-csrf-token": me["csrf"]}).status_code == 200
+    assert local.get("/auth/me").status_code == 401
+    monkeypatch.setenv("APP_ENV", "production")
+    assert local.post("/auth/demo", headers=headers).status_code == 404
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("COOKIE_SECURE", "true")
+    assert local.post("/auth/demo", headers=headers).status_code == 404

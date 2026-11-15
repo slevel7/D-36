@@ -120,6 +120,10 @@ def login(data: Credentials, response: Response, session: Session = Depends(db))
         session.add(Audit(actor=key, action="login_failed"))
         session.commit()
         raise HTTPException(401, "Invalid credentials")
+    return create_login_session(user, response, session)
+
+
+def create_login_session(user: User, response: Response, session: Session, action="login"):
     raw, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     session.add(
         LoginSession(
@@ -129,7 +133,7 @@ def login(data: Credentials, response: Response, session: Session = Depends(db))
             expires=int(time.time()) + 28800,
         )
     )
-    session.add(Audit(actor=user.id, action="login"))
+    session.add(Audit(actor=user.id, action=action))
     session.commit()
     response.set_cookie(
         "brahma_session",
@@ -145,6 +149,35 @@ def login(data: Credentials, response: Response, session: Session = Depends(db))
 DUMMY_PASSWORD = hash_password(secrets.token_urlsafe(32))
 
 
+def demo_access_enabled():
+    return (
+        os.getenv("DEMO_AUTO_LOGIN") == "true"
+        and os.getenv("APP_ENV") == "development"
+        and os.getenv("COOKIE_SECURE") != "true"
+    )
+
+
+@app.post("/auth/demo")
+def demo_login(request: Request, response: Response, session: Session = Depends(db)):
+    if (
+        not demo_access_enabled()
+        or not request.client
+        or request.client.host not in {"127.0.0.1", "::1"}
+        or request.headers.get("x-brahma-demo") != "local-preview"
+    ):
+        raise HTTPException(404, "Not found")
+    user = session.scalar(
+        select(User).where(
+            User.email == "employee@example.test",
+            User.role == "employee",
+            User.department == "DEMO Pension",
+        )
+    )
+    if not user:
+        raise HTTPException(503, "Seed the local demo employee before opening the preview")
+    return create_login_session(user, response, session, action="demo_auto_login")
+
+
 @app.get("/auth/me")
 def me(request: Request, user: User = Depends(current), session: Session = Depends(db)):
     token = hashlib.sha256(request.cookies["brahma_session"].encode()).hexdigest()
@@ -154,6 +187,7 @@ def me(request: Request, user: User = Depends(current), session: Session = Depen
         "role": user.role,
         "department": user.department,
         "csrf": session.get(LoginSession, token).csrf,
+        "local_demo_access": demo_access_enabled(),
     }
 
 
