@@ -1,0 +1,57 @@
+import {test,expect} from '@playwright/test';
+
+test('legacy pension import preview, register and reviewed operation persist',async({page})=>{
+ const token=Date.now();
+ await page.goto('/department/pension');
+ await page.getByRole('link',{name:'Import / Connect Existing System',exact:true}).click();
+ await page.getByLabel('Existing system / export source',{exact:true}).fill('DEMO legacy '+token);
+ await page.getByLabel('CSV or Excel export',{exact:true}).setInputFiles({name:'pensions.csv',mimeType:'text/csv',buffer:Buffer.from('external_id,pensioner_alias,case_type,retirement_date,summary,scheme,scheme_name\nEXT-'+token+',Demo imported '+token+',New beneficiary,,Imported beneficiary evidence requires verification,Social welfare,Demo welfare scheme\n')});
+ await page.getByRole('button',{name:'Preview import',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Review import preview'})).toBeVisible();
+ await expect(page.getByText('Ready',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Confirm reviewed import',exact:true}).click();
+ await page.getByRole('button',{name:'Import records',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('Import completed');
+ await page.goto('/department/pension');
+ await page.getByRole('combobox',{name:'Filter scheme family',exact:true}).selectOption('Social welfare');
+ await page.getByRole('link').filter({hasText:'Demo imported '+token}).click();
+ await page.getByRole('button',{name:'Pension register',exact:true}).click();
+ await expect(page.getByRole('combobox',{name:'Scheme family',exact:true})).toHaveValue('Social welfare');
+ await page.getByLabel('Payment reconciliation period',{exact:true}).fill('2026-11');
+ await page.getByRole('combobox',{name:'Payment reconciliation status',exact:true}).selectOption('Missing');
+ await page.getByRole('button',{name:'Save pension register',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('register saved');
+ await page.reload();await page.getByRole('button',{name:'Pension register',exact:true}).click();
+ await expect(page.getByRole('combobox',{name:'Payment reconciliation status',exact:true})).toHaveValue('Missing');
+ await page.getByRole('combobox',{name:'Pension operation',exact:true}).selectOption('Payment reconciliation');
+ await page.getByLabel('Work required and supporting evidence',{exact:true}).fill('Compare missing payment against authorised source statement');
+ await page.getByRole('button',{name:'Create pension work item',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('work item created');
+ await expect(page.getByRole('button',{name:'Request review',exact:true})).toBeVisible();
+ await page.screenshot({path:'../../docs/screenshots/pension-register.png',fullPage:true});
+});
+
+test('outreach imports explicit consent, saves feedback and exports report',async({page})=>{
+ const token=Date.now();await page.goto('/department/outreach');
+ await page.getByRole('button',{name:'New simulated campaign',exact:true}).click();
+ await page.getByLabel('Campaign name',{exact:true}).fill('DEMO imported audience '+token);
+ await page.getByLabel('Purpose',{exact:true}).fill('Review missing pension certificate follow-up');
+ await page.getByLabel('Draft message / script',{exact:true}).fill('Please provide the missing supporting certificate for review.');
+ await page.getByRole('button',{name:'Create simulation draft',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ await page.getByRole('button',{name:'Import audience CSV / Excel',exact:true}).click();
+ await page.getByLabel('Existing system / export source',{exact:true}).fill('DEMO exported audience');
+ await page.getByLabel('CSV or Excel export',{exact:true}).setInputFiles({name:'audience.csv',mimeType:'text/csv',buffer:Buffer.from('alias,consent\nDemo recipient '+token+',true\nDemo withheld '+token+',false\n')});
+ await page.getByRole('button',{name:'Preview import',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm reviewed import',exact:true}).click();
+ await page.getByRole('button',{name:'Import records',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('Import completed');
+ await page.getByRole('button',{name:'Close dialog',exact:true}).click();
+ await expect(page.getByText('Demo recipient '+token,{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Record feedback',exact:true}).first().click();
+ await page.getByLabel('Recipient feedback',{exact:true}).fill('Recipient will submit supporting documents');
+ await page.getByRole('button',{name:'Save outreach feedback',exact:true}).click();
+ await expect(page.getByText('Recipient will submit supporting documents',{exact:true})).toBeVisible();
+ const downloadPromise=page.waitForEvent('download');await page.getByRole('link',{name:'Download outreach report',exact:true}).click();const download=await downloadPromise;expect(download.suggestedFilename()).toBe('outreach-simulation-report.csv');
+ await page.screenshot({path:'../../docs/screenshots/outreach-import.png',fullPage:true});
+});

@@ -1,0 +1,94 @@
+name: checks
+on: [push, pull_request]
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r apps/api/requirements.txt ruff==0.17.5
+      - run: python -m ruff check apps/api scripts
+      - run: python -m pytest -q
+      - run: python scripts/check_secrets.py
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm audit --omit=dev
+  postgres-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: brahma
+          POSTGRES_PASSWORD: ci-ephemeral-only-password
+          POSTGRES_DB: brahma
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U brahma"
+          --health-interval 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://brahma:ci-ephemeral-only-password@localhost:5432/brahma
+      DEMO_PASSWORD: ci-demo-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r apps/api/requirements.txt
+      - run: python -m alembic -c apps/api/alembic.ini upgrade head
+      - run: python -m alembic -c apps/api/alembic.ini check
+      - run: python apps/api/seed_demo.py
+  browser:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: development
+      DEMO_AUTO_LOGIN: 'true'
+      DEMO_PASSWORD: ci-demo-${{ github.run_id }}-${{ github.run_attempt }}
+      E2E_PASSWORD: ci-demo-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r apps/api/requirements.txt
+      - run: python -m alembic -c apps/api/alembic.ini upgrade head
+      - run: python apps/api/seed_demo.py
+      - name: Start local API
+        working-directory: apps/api
+        run: python -m uvicorn main:app --host 127.0.0.1 --port 8000 > /tmp/brahma-api.log 2>&1 &
+      - run: npm ci
+        working-directory: apps/web
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - name: Start local web
+        working-directory: apps/web
+        run: npm run dev -- --hostname 127.0.0.1 > /tmp/brahma-web.log 2>&1 &
+      - name: Wait for preview
+        run: python scripts/wait_for_preview.py
+      - run: npm run test:e2e
+        working-directory: apps/web
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence
+          path: |
+            docs/screenshots/
+            apps/web/test-results/

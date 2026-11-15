@@ -1,0 +1,34 @@
+# Acceptance matrix - recovery evaluation
+
+All 24 contract criteria were evaluated. PASS denotes the stated local scope only; PARTIAL, BLOCKED and PENDING are not completion. The product is not declared complete.
+
+| # | Criterion | Result and remaining gap | Evidence | Screenshots under docs/screenshots |
+|---|---|---|---|---|
+| 1 | Shell, logo and authorised navigation | PASS local demo + API auth; normal browser password entry not separately exercised | recovery.spec.ts / test_auth_and_revocation | home.png |
+| 2 | Reference fidelity, desktop and mobile | PARTIAL - inspected manually; drawer/no overflow pass; pixel-diff baselines absent | recovery.spec.ts / UX_SPEC.md | profile.png; mobile.png |
+| 3 | Multi-turn conversation and history | PARTIAL - private messages/status/history API; no hosted AI/streaming; full browser history actions pending | test_security_support_providers_and_conversation | home.png |
+| 4 | All nine Profile sections | PARTIAL - real panels/actions or provider gates; quiet/digest scheduling, delegation, MFA and translations incomplete | test_profile_settings_and_private_files; recovery.spec.ts | profile*.png |
+| 5 | Access request, admin decision and selector | PARTIAL - API approval/scope/expiry/revocation/effective reviewer tested; full browser access-decision flow pending | test_access_decision_scope_expiry_and_notifications; test_membership_reviewer_rights_are_effective_without_changing_identity_role | profile-access.png |
+| 6 | Six Customize tabs and persisted actions | PASS core - favourites/reload/request browser; ordering/usage/dismiss/permissions API | test_tool_catalogue_persistence_order_recents_and_policy; recovery.spec.ts | customize-all.png; customize-recommended.png |
+| 7 | Project collaborative workflow | PASS core - create/invite/task/file/meeting/discussion; notifications and restricted-file checks | test_project_collaboration_and_canonical_task_permissions; work.spec.ts | project-detail.png |
+| 8 | Pension full lifecycle | PARTIAL - distinct checks/deficiencies/review/forwarding; richer case configuration/reports and complete browser attachment/assignment flow pending | test_distinct_case_lifecycles_and_separate_review; work.spec.ts | pension-detail.png |
+| 9 | Grievance full lifecycle | PARTIAL - API return/review/resolve/close; browser investigation/response; reports/escalation/configuration incomplete | test_distinct_case_lifecycles_and_separate_review; work.spec.ts | grievance-detail.png |
+| 10 | Consent-aware outreach simulation | PARTIAL - approval/receipts/opt-out/feedback API and simulation browser; scheduling/retries/reports incomplete; zero real sends | test_outreach_consent_approval_optout_and_simulation_only; work.spec.ts | department.png |
+| 11 | Admin-configured departmental tool | PASS core - draft/version/activation/fields/entries; authorised catalogue and negative execution checks | test_configured_tools_and_explicit_idempotent_agent_actions; work.spec.ts | admin.png |
+| 12 | Real PDF/DOCX ingestion with anchors | PASS local - bytes/hash preserved, PDF pages/DOCX paragraphs and invalid-file rejection | test_original_upload_revision_citations_and_review_exports; documents.spec.ts | document-citations.png |
+| 13 | Grounded office-note drafting | DEMO PASS - keyword-selected explicit excerpts, editable version, recommendations and unknowns; no legal verification or live LLM | test_original_upload_revision_citations_and_review_exports; documents.spec.ts | document-citations.png |
+| 14 | Clickable exact citation and denial | PASS core - original version, page/paragraph, marked excerpt; source revocation and cross-scope denial | test_preferences_search_and_source_revocation; documents.spec.ts | document-citations.png |
+| 15 | Versions, compare, originals and exports | PARTIAL - immutable revisions/diff/restore and four review-copy formats; export visual QA, approved template library and final issuance incomplete | test_original_upload_revision_citations_and_review_exports; documents.spec.ts | document-citations.png |
+| 16 | Separate human review and reapproval | PASS single-reviewer scope - return/revise/resubmit/approve; self/stale denial; audit and notifications | test_original_upload_revision_citations_and_review_exports; documents.spec.ts | approvals.png |
+| 17 | Contextual confirmed agent action | PARTIAL - typed task preview/confirm/idempotency/audit works; broader agent router and action catalogue incomplete | test_configured_tools_and_explicit_idempotent_agent_actions; work.spec.ts | project-detail.png |
+| 18 | Canonical tasks across work modules | PARTIAL - project/case/personal, assignment/status/comments/date/calendar; dependencies/reminder worker/recurrence and all-source task linkage incomplete | test_project_collaboration_and_canonical_task_permissions; work.spec.ts | tasks.png |
+| 19 | Permission-filtered global search | PARTIAL - documents/chats/projects/tasks/cases/meetings and negative source checks; advanced indexing/classification and connected search incomplete | workspace_search / permission suite | home.png |
+| 20 | Honest unconfigured-provider behaviour | PASS gates - not-configured catalogue/requests; explicit deterministic mode; no external send/sync/model claims | test_security_support_providers_and_conversation; recovery.spec.ts | profile-apps.png; profile-models.png |
+| 21 | Restart persistence | PARTIAL - SQLite API restarts and browser reload preserve data; container restart and object-storage/worker persistence unverified | Local migration and reload evidence | profile.png |
+| 22 | Server-side sensitive/admin/file authorization | PARTIAL - role/scope/project/source/private-file negative tests pass; full classification/retention/production controls incomplete | 17-scenario API suite | admin.png |
+| 23 | Compose/PostgreSQL/services/CI | BLOCKED/PENDING - Docker absent locally; SQLite migration/check pass; PostgreSQL and browser CI jobs configured, remote result pending | checks.yml / Alembic head 3bf7d91b7e1d | Not applicable |
+| 24 | GitHub delivery and public-data checks | PENDING latest push/remote SHA; initial recovery commit 29354c7 pushed; lightweight secret scan passes | git verification / check_secrets.py | Not applicable |
+
+Latest completed API run: 17 passed. Latest lint/typecheck/build passed. Current full browser rerun result is recorded in STATUS.md. No unrun Docker/PostgreSQL/CI check is called passed.
+
+Pension expansion: internal registers and reviewed operations cover both employee and social welfare families. File-based legacy imports and outreach audience imports are implemented. This does not satisfy all scheme-specific pension work: verified legal/rate rules, calculation engines, external eligibility checks, payment execution and production system adapters remain outstanding. Connection requests do not establish connections. See PENSION_AND_LEGACY.md.
