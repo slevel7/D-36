@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import {useEffect,useState,FormEvent} from 'react';
 type Row={id:string;title:string;body?:string;status?:string;source?:boolean};
 type Me={email:string;department:string;role:string;csrf:string};
@@ -7,7 +7,7 @@ export default function Home(){
  const [me,setMe]=useState<Me|null>(null),[section,setSection]=useState('Home'),[rows,setRows]=useState<Row[]>([]),[error,setError]=useState(''),[csrf,setCsrf]=useState(''),[menu,setMenu]=useState(false),[selected,setSelected]=useState<{document:Row;versions:Version[];citations:{id:string;version_id:string}[]}|null>(null),[body,setBody]=useState(''),[sources,setSources]=useState<string[]>([]),[evidence,setEvidence]=useState<any>(null);
  async function api(path:string,method='GET',data?:unknown){const response=await fetch('/api'+path,{method,headers:{'Content-Type':'application/json','x-csrf-token':csrf},body:data===undefined?undefined:JSON.stringify(data)});const value=await response.json();if(!response.ok)throw Error(typeof value.detail==='string'?value.detail:'Please check your input');return value;}
  async function run(fn:()=>Promise<void>){setError('');try{await fn()}catch(e){setError((e as Error).message)}}
- useEffect(()=>{fetch('/api/auth/me').then(r=>r.ok?r.json():null).then(u=>{setMe(u);if(u)setCsrf(u.csrf)}).catch(()=>setError('API unavailable. Start the backend.'))},[]);
+ useEffect(()=>{fetch('/api/profile/preferences').then(r=>r.ok?r.json():null).then(p=>{if(p)document.documentElement.dataset.theme=p.theme}).catch(()=>{});fetch('/api/auth/me').then(r=>r.ok?r.json():null).then(u=>{setMe(u);if(u)setCsrf(u.csrf)}).catch(()=>setError('API unavailable. Start the backend.'))},[]);
  const kind:Record<string,string>={'Projects':'projects','My Tasks':'tasks','Pension':'pension','Public Grievances':'grievances','Department Tools':'tools','Home':'chats'};
  async function load(name:string){setSection(name);setSelected(null);setEvidence(null);if(kind[name])setRows(await api('/records/'+kind[name]));else if(name==='Documents')setRows(await api('/documents'));else if(name==='Approvals')setRows(await api('/approvals'));else setRows([])}
  async function open(id:string){const d=await api('/documents/'+id);setSelected(d);setBody(d.versions.at(-1)?.body||'')}
@@ -21,7 +21,7 @@ export default function Home(){
  {section==='Approvals'&&rows.map((r:any)=><article key={r.id}><p>{r.status} · version {r.version_id}</p>{['APPROVED','CHANGES_REQUESTED','REJECTED'].map(status=><button key={status} onClick={()=>run(async()=>{await api('/approvals/'+r.id+'/decide','POST',{status,comment:'Reviewed in DEMO workflow'});await load('Approvals')})}>{status.replaceAll('_',' ')}</button>)}</article>)}
  {section==='Customize'&&<><div className="tabs">{['Recommended','Favourites','Recently Used','All Tools','Connected Tools','Department Tools'].map(n=><button key={n} onClick={()=>setBody(n)}>{n}</button>)}</div><p>{body||'Recommended'} · Catalogue foundation; favourites and tracking are not implemented.</p><button onClick={()=>run(()=>load('Documents'))}>Document drafting · Available</button><p>External tools · Requires credentials</p></>}
  {section==='My Profile'&&<p>{me.email}<br/>{me.role}<br/>{me.department}</p>}
- {section==='Preferences'&&<div className="tabs">{['Light','Dark','System'].map(t=><button key={t} onClick={()=>{document.documentElement.dataset.theme=t.toLowerCase();localStorage.setItem('theme',t)}}>{t}</button>)}</div>}
+ {section==='Preferences'&&<div className="tabs">{['Light','Dark','System'].map(t=><button key={t} onClick={()=>{run(async()=>{await api('/profile/preferences','PUT',{theme:t.toLowerCase(),language:'en',display_name:''});document.documentElement.dataset.theme=t.toLowerCase()})}}>{t}</button>)}</div>}
  {section==='Security & Permissions'&&<p>Revocable eight-hour server session. Password recovery and MFA are not implemented. Sign out revokes this session.</p>}
  {section==='Connected Apps'&&<p>No connections configured. OAuth and external sends are unavailable.</p>}
  {section==='AI & Models'&&<p>DEMO deterministic excerpt compiler. No LLM or embedding provider configured. Citations are paragraph anchors to immutable source versions.</p>}

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import ForeignKey, String, Text, create_engine, select
+from sqlalchemy import BigInteger, ForeignKey, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 engine = create_engine(os.getenv("DATABASE_URL", "sqlite:///./brahma.db"))
@@ -251,7 +251,7 @@ class Version(Base):
     document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"))
     body: Mapped[str] = mapped_column(Text)
     digest: Mapped[str] = mapped_column(String)
-    created: Mapped[int] = mapped_column(default=lambda: int(time.time()))
+    created: Mapped[int] = mapped_column(BigInteger, default=time.time_ns)
 
 
 class Citation(Base):
@@ -275,7 +275,11 @@ class Approval(Base):
 
 def document_access(id, user, session):
     document = session.get(Document, id)
-    if not document or document.department != user.department:
+    if (
+        not document
+        or document.department != user.department
+        or session.get(DocumentRestriction, (id, user.id))
+    ):
         raise HTTPException(404, "Document not found")
     return document
 
@@ -291,7 +295,10 @@ def add_version(document, body, session):
 
 @app.get("/documents")
 def documents(user: User = Depends(current), session: Session = Depends(db)):
-    return session.scalars(select(Document).where(Document.department == user.department)).all()
+    candidates = session.scalars(
+        select(Document).where(Document.department == user.department)
+    ).all()
+    return [d for d in candidates if not session.get(DocumentRestriction, (d.id, user.id))]
 
 
 @app.post("/documents")
@@ -317,6 +324,10 @@ def get_document(id: str, user: User = Depends(current), session: Session = Depe
     versions = session.scalars(
         select(Version).where(Version.document_id == id).order_by(Version.created, Version.id)
     ).all()
+    for version in versions:
+        for c in session.scalars(select(Citation).where(Citation.version_id == version.id)):
+            source_version = session.get(Version, c.source_version)
+            document_access(source_version.document_id, user, session)
     return {
         "document": document,
         "versions": versions,
@@ -470,6 +481,9 @@ def decide(id: str, data: Decision, user: User = Depends(current), session: Sess
         raise HTTPException(422)
     version = session.get(Version, approval.version_id)
     document_access(version.document_id, user, session)
+    for c in session.scalars(select(Citation).where(Citation.version_id == version.id)):
+        source_version = session.get(Version, c.source_version)
+        document_access(source_version.document_id, user, session)
     approval.status, approval.comment = data.status, data.comment
     session.add(Audit(actor=user.id, action="approval:" + data.status + ":" + id))
     session.commit()
@@ -529,3 +543,102 @@ def export(id: str, format: str, user: User = Depends(current), session: Session
         media_type=mime,
         headers={"Content-Disposition": f'attachment; filename="review-copy.{format}"'},
     )
+
+
+class DocumentRestriction(Base):
+    __tablename__ = "document_restrictions"
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+
+
+class Preference(Base):
+    __tablename__ = "preferences"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    theme: Mapped[str] = mapped_column(String, default="system")
+    language: Mapped[str] = mapped_column(String, default="en")
+    display_name: Mapped[str] = mapped_column(String, default="")
+
+
+class PreferencesInput(BaseModel):
+    theme: str = Field(pattern="^(light|dark|system)$")
+    language: str = Field(pattern="^(en)$")
+    display_name: str = Field(default="", max_length=100)
+
+
+@app.get("/profile/preferences")
+def preferences(user: User = Depends(current), session: Session = Depends(db)):
+    value = session.get(Preference, user.id)
+    return {
+        "theme": value.theme if value else "system",
+        "language": "en",
+        "display_name": value.display_name if value else "",
+    }
+
+
+@app.put("/profile/preferences")
+def save_preferences(
+    data: PreferencesInput, user: User = Depends(current), session: Session = Depends(db)
+):
+    value = session.get(Preference, user.id)
+    if not value:
+        value = Preference(user_id=user.id)
+        session.add(value)
+    value.theme, value.language, value.display_name = data.theme, data.language, data.display_name
+    session.add(Audit(actor=user.id, action="profile:preferences"))
+    session.commit()
+    return {"saved": True}
+
+
+@app.post("/documents/{id}/restrict/{user_id}")
+def restrict_document(
+    id: str, user_id: str, user: User = Depends(current), session: Session = Depends(db)
+):
+    document = document_access(id, user, session)
+    if document.owner != user.id or user_id == user.id:
+        raise HTTPException(403)
+    target = session.get(User, user_id)
+    if not target or target.department != user.department:
+        raise HTTPException(404)
+    if not session.get(DocumentRestriction, (id, user_id)):
+        session.add(DocumentRestriction(document_id=id, user_id=user_id))
+    session.add(Audit(actor=user.id, action="document:restrict:" + id))
+    session.commit()
+    return {"restricted": True}
+
+
+@app.get("/search")
+def search(q: str = "", user: User = Depends(current), session: Session = Depends(db)):
+    if len(q) < 2 or len(q) > 200:
+        raise HTTPException(422, "Search needs 2–200 characters")
+    results = []
+    for document in session.scalars(
+        select(Document)
+        .where(Document.department == user.department, Document.title.icontains(q, autoescape=True))
+        .limit(100)
+    ):
+        try:
+            document_access(document.id, user, session)
+        except HTTPException:
+            continue
+        results.append(
+            {
+                "id": document.id,
+                "title": document.title,
+                "kind": "document",
+                "url": "/documents/" + document.id,
+            }
+        )
+    for record in session.scalars(
+        select(Record)
+        .where(Record.department == user.department, Record.title.icontains(q, autoescape=True))
+        .limit(100)
+    ):
+        results.append(
+            {
+                "id": record.id,
+                "title": record.title,
+                "kind": record.kind,
+                "url": "/records/" + record.id,
+            }
+        )
+    return results

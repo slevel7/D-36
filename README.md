@@ -10,6 +10,7 @@ Prerequisites: Python 3.13, Node 22+, Git. Docker Desktop with WSL2 is optional 
 python -m pip install -r apps/api/requirements.txt
 $env:DEMO_PASSWORD = 'Choose-your-local-demo-password'
 Set-Location apps/api
+python -m alembic upgrade head
 python seed_demo.py
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
@@ -22,7 +23,7 @@ npm.cmd ci
 npm.cmd run dev
 ```
 
-Web: http://localhost:3000 · API documentation: http://127.0.0.1:8000/docs. These are expected startup URLs, not a hosted deployment.
+Web: http://localhost:3000 Â· API documentation: http://127.0.0.1:8000/docs. These are expected startup URLs, not a hosted deployment.
 
 Synthetic accounts use your chosen `DEMO_PASSWORD`: `employee@example.test` (employee), `reviewer@example.test` (reviewer), `admin@example.test` (platform admin; separate administration department), `other@example.test` (separate department). No public registration. Demo passwords are not shipped or embedded in the frontend.
 
@@ -30,7 +31,7 @@ Linux/macOS: use `export DEMO_PASSWORD='...'`, `cd` instead of `Set-Location`, a
 
 ## PostgreSQL services
 
-Copy `.env.example` to `.env`, supply strong local service secrets, start Docker Desktop, then `docker compose up -d`. Export `DATABASE_URL` into the API terminal before running the schema bootstrap. Compose reads `.env`; Python requires environment variables explicitly. The bootstrap creates tables for a fresh development database; Alembic upgrade migrations are not yet implemented. Redis and MinIO are provisioned only and not integrated with application jobs or uploads. Docker was unavailable on the implementation host; this path has not been executed.
+Copy `.env.example` to `.env`, supply strong local service secrets, start Docker Desktop, then `docker compose up -d`. Export `DATABASE_URL` into the API terminal before running the schema bootstrap. Compose reads `.env`; Python requires environment variables explicitly. Run the initial migration on a fresh development database; An initial Alembic migration is verified on SQLite; PostgreSQL execution remains unverified. Redis and MinIO are provisioned only and not integrated with application jobs or uploads. Docker was unavailable on the implementation host; this path has not been executed.
 
 ## Verify
 

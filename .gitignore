@@ -7,3 +7,6 @@ __pycache__/
 .venv/
 test-results/
 playwright-report/
+
+*.tsbuildinfo
+.ruff_cache/

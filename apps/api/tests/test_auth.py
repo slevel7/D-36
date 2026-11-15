@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 os.environ["DATABASE_URL"] = "sqlite://"
 import main
 from fastapi.testclient import TestClient
@@ -165,3 +167,114 @@ def test_grounded_draft_and_permissions():
         ).status_code
         == 403
     )
+
+
+@pytest.fixture(autouse=True)
+def isolated_database():
+    main.Base.metadata.drop_all(main.engine)
+    main.Base.metadata.create_all(main.engine)
+    with Session(main.engine) as db:
+        db.add(
+            main.User(
+                email="employee@example.test", password=main.hash_password("Test-password-123")
+            )
+        )
+        db.commit()
+    client.cookies.clear()
+    yield
+
+
+def test_preferences_search_and_source_revocation():
+    employee = TestClient(main.app)
+    token = employee.post(
+        "/auth/login", json={"email": "employee@example.test", "password": "Test-password-123"}
+    ).json()["csrf"]
+    employee.headers["x-csrf-token"] = token
+    assert (
+        employee.put(
+            "/profile/preferences",
+            json={"theme": "dark", "language": "en", "display_name": "DEMO Employee"},
+        ).status_code
+        == 200
+    )
+    assert employee.get("/profile/preferences").json()["theme"] == "dark"
+    assert (
+        employee.put("/profile/preferences", json={"theme": "blue", "language": "en"}).status_code
+        == 422
+    )
+    with Session(main.engine) as db:
+        reviewer = main.User(
+            email="reviewer@example.test",
+            role="reviewer",
+            password=main.hash_password("Test-password-123"),
+        )
+        db.add(reviewer)
+        db.commit()
+        db.refresh(reviewer)
+        reviewer_id = reviewer.id
+    review = TestClient(main.app)
+    token = review.post(
+        "/auth/login", json={"email": "reviewer@example.test", "password": "Test-password-123"}
+    ).json()["csrf"]
+    review.headers["x-csrf-token"] = token
+    ids = [
+        employee.post(
+            "/documents?source=true",
+            json={"title": "DEMO evidence " + str(i), "body": "DEMO source " + str(i)},
+        ).json()["id"]
+        for i in range(2)
+    ]
+    draft_id = employee.post("/agent/draft", json={"title": "Draft", "source_ids": ids}).json()[
+        "id"
+    ]
+    doc = employee.get("/documents/" + draft_id).json()
+    version_id = doc["versions"][0]["id"]
+    approval = employee.post(
+        "/versions/" + version_id + "/submit", json={"reviewer_email": "reviewer@example.test"}
+    ).json()
+    assert len(review.get("/search?q=evidence").json()) == 2
+    assert employee.post("/documents/" + ids[0] + "/restrict/" + reviewer_id).status_code == 200
+    assert len(review.get("/search?q=evidence").json()) == 1
+    assert review.get("/documents/" + draft_id).status_code == 404
+    assert review.get("/citations/" + doc["citations"][0]["id"]).status_code == 404
+    assert review.get("/versions/" + version_id + "/export/pdf").status_code == 404
+    assert (
+        review.post(
+            "/approvals/" + approval["id"] + "/decide",
+            json={"status": "APPROVED", "comment": "Must fail after source access revoked"},
+        ).status_code
+        == 404
+    )
+
+
+def test_record_permissions_and_throttle():
+    c = TestClient(main.app)
+    for _ in range(5):
+        assert (
+            c.post(
+                "/auth/login", json={"email": "unknown@example.test", "password": "wrong"}
+            ).status_code
+            == 401
+        )
+    assert (
+        c.post(
+            "/auth/login", json={"email": "unknown@example.test", "password": "wrong"}
+        ).status_code
+        == 429
+    )
+    token = c.post(
+        "/auth/login", json={"email": "employee@example.test", "password": "Test-password-123"}
+    ).json()["csrf"]
+    c.headers["x-csrf-token"] = token
+    assert c.post("/records/tools", json={"title": "Forbidden admin tool"}).status_code == 403
+    record = c.post(
+        "/records/tasks", json={"title": "DEMO follow-up", "body": "Review source completeness"}
+    ).json()
+    assert (
+        c.patch(
+            "/records/" + record["id"], json={"title": "DEMO follow-up edited", "body": "Updated"}
+        ).status_code
+        == 200
+    )
+    assert c.get("/records/tasks").json()[0]["title"] == "DEMO follow-up edited"
+    assert c.get("/records/unknown").status_code == 404

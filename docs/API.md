@@ -1,0 +1,7 @@
+# API
+
+OpenAPI: http://127.0.0.1:8000/docs after startup. Authentication uses same-origin cookies; call POST /auth/login, retain cookie and returned csrf, send x-csrf-token on writes. GET /auth/me refreshes identity/CSRF; POST /auth/logout revokes the session. No public registration.
+
+Routes: /records/{kind} list/create projects/tasks/pension/grievances/tools/chats; PATCH /records/{id} owner edit. /documents list/create with source=true for immutable references; GET /documents/{id} versions/evidence; POST /documents/{id}/versions owner creates revision. POST /agent/draft accepts title and at least two distinct source_ids. GET /citations/{id} checks current permissions and returns exact passage, version/hash. POST /versions/{id}/submit takes reviewer_email; GET /approvals; POST /approvals/{id}/decide accepts status and required comment. GET /versions/{id}/export/{docx|pdf} emits review copy and rechecks source access. POST /documents/{id}/restrict/{user_id} lets owner withdraw access for another department colleague. GET /search?q= performs permission-filtered title keyword search. GET/PUT /profile/preferences manages current-user theme/display name. GET /admin/audit is platform-admin-only.
+
+No external integrations or final official issuing endpoint exists. HTTP 401 unauthenticated, 403 denied/CSRF, 404 inaccessible scoped resource, 422 validation/workflow, 429 login throttle. Missing citation blocks review. Unknown source IDs do not leak existence.
