@@ -1,0 +1,2 @@
+import {redirect} from 'next/navigation';
+export default function Tools(){redirect('/customize?tab=department');}

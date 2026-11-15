@@ -1,9 +1,8 @@
-﻿'use client';
+'use client';
 import {useState} from 'react';
-import Link from 'next/link';
 import {api,date} from '../lib/api';
 import {useSession} from './session-provider';
-import {Card,DataRows,Empty,Feedback,Loading,Modal,useAction,useResource} from './ui';
+import {Card,Empty,Feedback,Loading,Modal,useAction,useResource} from './ui';
 type Department={id:string;name:string;divisions:{id:string;name:string}[]};
 type Access={id:string;department_id:string;reason:string;status:string;comment:string;created:number};
 export function AccessPanel(){

@@ -1,6 +1,6 @@
-﻿'use client';
+'use client';
 import {createContext,useContext,useEffect,useState,ReactNode} from 'react';
-import {api,ApiError,applyPreferences,Bootstrap,setCsrf} from '../lib/api';
+import {api,applyPreferences,Bootstrap,setCsrf} from '../lib/api';
 type SessionValue={data:Bootstrap|null;loading:boolean;error:string;refresh:()=>Promise<void>;signOut:()=>Promise<void>};
 const Context=createContext<SessionValue|null>(null);
 export function SessionProvider({children}:{children:ReactNode}){
@@ -9,7 +9,7 @@ export function SessionProvider({children}:{children:ReactNode}){
  async function restore(){
   try {
    let response=await fetch('/api/auth/me',{credentials:'same-origin'});
-   if(response.status===401){const demo=await fetch('/api/auth/demo',{method:'POST',headers:{'x-brahma-demo':'local-preview'}});if(demo.ok)response=await fetch('/api/auth/me');}
+   if(response.status===401&&window.location.pathname!=='/login'){const demo=await fetch('/api/auth/demo',{method:'POST',headers:{'x-brahma-demo':'local-preview'}});if(demo.ok)response=await fetch('/api/auth/me');}
    if(response.ok){setCsrf((await response.json()).csrf);await refresh();}
    else if(response.status!==401)throw new Error('Your workspace session could not be restored.');
   }catch(e){setError((e as Error).message);}finally{setLoading(false);}

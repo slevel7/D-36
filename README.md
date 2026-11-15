@@ -44,7 +44,7 @@ npm.cmd run build
 
 Current scope: session authentication, department-scoped basic records, immutable text sources and draft revisions, deterministic grounded draft compilation, exact paragraph evidence, separate-human review decisions and real DOCX/PDF review exports. Full specification is [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md); honest coverage is [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md).
 
-The supplied lotus file was not present. Text branding is used until the original asset is provided; no replacement silhouette is fabricated. No LLM, OAuth, government portal, messaging, calendar or production integration is claimed.
+The supplied reference and lotus were subsequently uploaded, inspected and preserved in reference/ and assets/. The application uses the supplied monochrome SVG geometry. Hosted AI and external integrations remain unconfigured; see docs/STATUS.md for current scope.
 
 See [walkthrough](docs/WALKTHROUGH.md), [security](docs/SECURITY.md), [limitations](docs/KNOWN_LIMITATIONS.md), and [status](docs/STATUS.md).
 
@@ -55,3 +55,5 @@ With the existing demo database seeded, start the API using `./scripts/start_dem
 ## Corrective recovery
 
 Profile: /profile; Customize: /customize; supplied lotus and inspected reference anatomy in grayscale. Existing UI is retained at /legacy during domain replacement. See docs/RECOVERY_GAP_AUDIT.md, docs/ACCEPTANCE_MATRIX.md and docs/UX_SPEC.md. Backend: `python -m pytest -q`. From apps/web: `npx playwright test e2e/recovery.spec.ts`; set E2E_PASSWORD to the local seeded password for `npx playwright test e2e/documents.spec.ts` with a separate reviewer. No local password is embedded in browser tests.
+
+The latest local recovery verification is 17 API tests and 8 browser scenarios, plus lint, typecheck, build, SQLite migration checks and a zero-finding dependency audit. This is not full acceptance completion. Start with [Windows setup](docs/WINDOWS_SETUP.md), [acceptance results](docs/ACCEPTANCE_MATRIX.md), [current status](docs/STATUS.md) and [reference comparison](docs/REFERENCE_COMPARISON.html).

@@ -5,6 +5,7 @@ import os
 import secrets
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -12,7 +13,9 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import BigInteger, ForeignKey, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-engine = create_engine(os.getenv("DATABASE_URL", "sqlite:///./brahma.db"))
+engine = create_engine(
+    os.getenv("DATABASE_URL", "sqlite:///" + Path(__file__).with_name("brahma.db").as_posix())
+)
 
 
 class Base(DeclarativeBase):
@@ -308,6 +311,7 @@ class Citation(Base):
     source_version: Mapped[str] = mapped_column(ForeignKey("document_versions.id"))
     paragraph: Mapped[int]
     excerpt: Mapped[str] = mapped_column(Text)
+    ordinal: Mapped[int] = mapped_column(default=1, server_default="1")
 
 
 class Approval(Base):
@@ -379,7 +383,9 @@ def get_document(id: str, user: User = Depends(current), session: Session = Depe
         "document": document,
         "versions": versions,
         "citations": session.scalars(
-            select(Citation).where(Citation.version_id.in_([v.id for v in versions]))
+            select(Citation)
+            .where(Citation.version_id.in_([v.id for v in versions]))
+            .order_by(Citation.ordinal)
         ).all(),
     }
 
@@ -404,6 +410,7 @@ def save_version(
                         source_version=c.source_version,
                         paragraph=c.paragraph,
                         excerpt=c.excerpt,
+                        ordinal=c.ordinal,
                     )
                 )
     session.add(Audit(actor=user.id, action="document:revise:" + id))
@@ -415,11 +422,22 @@ def save_version(
 class DraftInput(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     source_ids: list[str] = Field(min_length=2, max_length=10)
+    request: str = Field(
+        default="Prepare an office note about missing supporting records and pending proposals",
+        min_length=3,
+        max_length=3000,
+    )
 
 
 @app.post("/agent/draft")
 def draft(data: DraftInput, user: User = Depends(current), session: Session = Depends(db)):
     sources = []
+    selected_passages = []
+    import re
+
+    from files import Passage
+
+    keywords = {word.rstrip("s") for word in re.findall(r"[a-z]{4,}", data.request.lower())}
     for id in dict.fromkeys(data.source_ids):
         document = document_access(id, user, session)
         if not document.source:
@@ -428,6 +446,25 @@ def draft(data: DraftInput, user: User = Depends(current), session: Session = De
         if not version or not version.body.strip():
             raise HTTPException(422, "Source text is empty")
         sources.append(version)
+        passages = session.scalars(
+            select(Passage).where(Passage.version_id == version.id).order_by(Passage.paragraph)
+        ).all()
+        candidates = [
+            (p.paragraph, line.strip())
+            for p in passages
+            for line in p.text.splitlines()
+            if line.strip()
+        ]
+        if not candidates:
+            candidates = [
+                (index + 1, line.strip())
+                for index, line in enumerate(version.body.splitlines())
+                if line.strip()
+            ]
+        paragraph, excerpt = max(
+            candidates, key=lambda item: sum(keyword in item[1].lower() for keyword in keywords)
+        )
+        selected_passages.append((paragraph, excerpt))
     if len(sources) < 2:
         raise HTTPException(422, "Two distinct sources required")
     document = Document(title=data.title, department=user.department, owner=user.id, source=False)
@@ -436,19 +473,20 @@ def draft(data: DraftInput, user: User = Depends(current), session: Session = De
     body = (
         "AI-assisted draft — requires review\nDEMO deterministic excerpt compilation; no legal verification.\n\n"
         + data.title
-        + "\n\nSourced facts\n"
+        + "\n\nPurpose: compile authorised excerpts for human review.\n\nSourced facts\n"
     )
-    for i, v in enumerate(sources):
-        body += f"[{i + 1}] " + v.body.split("\n")[0] + "\n\n"
+    for i, _v in enumerate(sources):
+        body += f"[{i + 1}] " + selected_passages[i][1] + "\n\n"
     body += "Recommendations (suggestions): Review completeness and obtain missing facts before issuing correspondence.\nUnknown: recipients, reference number, authority and signature. Source not verified for any additional claims."
     version = add_version(document, body, session)
-    for v in sources:
+    for index, v in enumerate(sources):
         session.add(
             Citation(
                 version_id=version.id,
                 source_version=v.id,
-                paragraph=1,
-                excerpt=v.body.split("\n")[0],
+                paragraph=selected_passages[index][0],
+                excerpt=selected_passages[index][1],
+                ordinal=index + 1,
             )
         )
     from files import DraftSuggestion
@@ -525,13 +563,10 @@ def submit(
     document = document_access(version.document_id, user, session)
     if document.owner != user.id:
         raise HTTPException(403)
-    reviewer = session.scalar(
-        select(User).where(
-            User.email == data.reviewer_email,
-            User.department == user.department,
-            User.role == "reviewer",
-        )
-    )
+    from workspace import reviewer_in_scope
+
+    identity = session.scalar(select(User).where(User.email == data.reviewer_email.strip().lower()))
+    reviewer = reviewer_in_scope(identity, user.department, session)
     if not reviewer or reviewer.id == user.id:
         raise HTTPException(422, "Separate authorised reviewer required")
     if not session.scalar(select(Citation).where(Citation.version_id == id)):
@@ -545,6 +580,7 @@ def submit(
         "DEMO deterministic excerpt compilation; no legal verification.",
         document.title,
         "Sourced facts",
+        "Purpose: compile authorised excerpts for human review.",
         "",
     }
     for line in prefix.splitlines():
@@ -604,7 +640,10 @@ class Decision(BaseModel):
 @app.post("/approvals/{id}/decide")
 def decide(id: str, data: Decision, user: User = Depends(current), session: Session = Depends(db)):
     approval = session.get(Approval, id)
-    if not approval or approval.reviewer != user.id or user.role != "reviewer":
+    from workspace import reviewer_in_scope
+
+    authorised_reviewer = reviewer_in_scope(session.get(User, user.id), user.department, session)
+    if not approval or approval.reviewer != user.id or not authorised_reviewer:
         raise HTTPException(403)
     if approval.status != "UNDER_REVIEW" or data.status not in {
         "APPROVED",
@@ -662,7 +701,20 @@ def export(id: str, format: str, user: User = Depends(current), session: Session
     for c in citations:
         source = session.get(Version, c.source_version)
         document_access(source.document_id, user, session)
-        evidence.append(f"{source.id} SHA256 {source.digest} paragraph {c.paragraph}: {c.excerpt}")
+        from files import FileObject, Passage
+
+        file = session.scalar(select(FileObject).where(FileObject.version_id == source.id))
+        passage = session.scalar(
+            select(Passage).where(Passage.version_id == source.id, Passage.paragraph == c.paragraph)
+        )
+        location = (
+            f"page {passage.page}, paragraph {c.paragraph}"
+            if passage and passage.page
+            else f"paragraph {c.paragraph} (no pagination)"
+        )
+        evidence.append(
+            f"Version {source.id}; text SHA256 {source.digest}; original SHA256 {file.digest if file else source.digest}; {location}; {c.excerpt}"
+        )
     text = (
         "REVIEW COPY — not an issued official document\n"
         + version.body
@@ -833,6 +885,15 @@ def install_workspace():
 
     app.include_router(router)
     app.include_router(files_router)
+    from work import router as work_router
+
+    app.include_router(work_router)
+    from configured_tools import router as configured_router
+
+    app.include_router(configured_router)
+    from pensions import router as pensions_router
+
+    app.include_router(pensions_router)
 
 
 install_workspace()

@@ -47,7 +47,7 @@ def extract(content, name):
             if pdf.is_encrypted or len(pdf) > 100:
                 raise ValueError()
             passages = [
-                (page.number + 1, block.strip(), "PDF text extraction")
+                (page.number + 1, block.strip(), "PDF text extraction", None)
                 for page in pdf
                 for block in page.get_text().split("\n\n")
                 if block.strip()
@@ -67,8 +67,8 @@ def extract(content, name):
                 raise ValueError()
             document = Word(io.BytesIO(content))
             passages = [
-                (None, p.text, "DOCX paragraph extraction")
-                for p in document.paragraphs
+                (None, p.text, "DOCX paragraph extraction", index + 1)
+                for index, p in enumerate(document.paragraphs)
                 if p.text.strip()
             ]
         except Exception as error:
@@ -84,7 +84,9 @@ def extract(content, name):
         if "\x00" in text:
             raise HTTPException(422, "Binary data is not a text file")
         passages = [
-            (None, p.strip(), "UTF-8 text paragraphs") for p in text.split("\n\n") if p.strip()
+            (None, p.strip(), "UTF-8 text paragraphs", index + 1)
+            for index, p in enumerate(text.split("\n\n"))
+            if p.strip()
         ]
         mime = "text/plain"
     else:
@@ -108,7 +110,7 @@ async def upload(
     document = Document(title=name, source=True, department=user.department, owner=user.id)
     session.add(document)
     session.flush()
-    version = add_version(document, "\n\n".join(text for _, text, _ in passages), session)
+    version = add_version(document, "\n\n".join(text for _, text, _, _ in passages), session)
     original = FileObject(
         version_id=version.id,
         name=name,
@@ -117,9 +119,15 @@ async def upload(
         digest=hashlib.sha256(content).hexdigest(),
     )
     session.add(original)
-    for i, (page, text, method) in enumerate(passages, 1):
+    for i, (page, text, method, original_paragraph) in enumerate(passages, 1):
         session.add(
-            Passage(version_id=version.id, paragraph=i, page=page, text=text, method=method)
+            Passage(
+                version_id=version.id,
+                paragraph=original_paragraph or i,
+                page=page,
+                text=text,
+                method=method,
+            )
         )
     session.add(Audit(actor=user.id, action="document:upload:" + document.id))
     session.commit()
@@ -212,6 +220,7 @@ def recommendation_decision(
         raise HTTPException(409, "Recommendation already reviewed")
     suggestion.status = data.status
     if data.status == "ACCEPTED":
+        session.add(Audit(actor=user.id, action="recommendation:accept:" + id))
         latest = session.scalar(
             select(Version).where(Version.document_id == doc.id).order_by(Version.created.desc())
         )
@@ -252,11 +261,41 @@ def compare(
 
 @router.get("/reviewers")
 def reviewers(user: User = Depends(current), session: Session = Depends(db)):
+    from workspace import reviewer_in_scope
+
     return [
-        {"id": u.id, "email": u.email}
-        for u in session.scalars(
-            select(User).where(
-                User.department == user.department, User.role == "reviewer", User.id != user.id
+        {"id": identity.id, "email": identity.email}
+        for identity in session.scalars(select(User))
+        if identity.id != user.id and reviewer_in_scope(identity, user.department, session)
+    ]
+
+
+@router.post("/documents/{id}/restore/{version_id}")
+def restore_version(
+    id: str, version_id: str, user: User = Depends(current), session: Session = Depends(db)
+):
+    from main import Citation, get_document
+
+    document = document_access(id, user, session)
+    get_document(id, user, session)
+    version = session.get(Version, version_id)
+    if document.owner != user.id or document.source:
+        raise HTTPException(403)
+    if not version or version.document_id != id:
+        raise HTTPException(404)
+    new = add_version(document, version.body, session)
+    for citation in session.scalars(select(Citation).where(Citation.version_id == version_id)):
+        source = session.get(Version, citation.source_version)
+        document_access(source.document_id, user, session)
+        session.add(
+            Citation(
+                version_id=new.id,
+                source_version=citation.source_version,
+                paragraph=citation.paragraph,
+                excerpt=citation.excerpt,
+                ordinal=citation.ordinal,
             )
         )
-    ]
+    session.add(Audit(actor=user.id, action="document:restore_as_new:" + id))
+    session.commit()
+    return {"id": new.id, "approval_inherited": False}

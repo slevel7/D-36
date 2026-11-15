@@ -1,4 +1,4 @@
-﻿import {test,expect} from '@playwright/test';
+import {test,expect} from '@playwright/test';
 import path from 'node:path';
 test('uploaded originals, exact citations, revisions, human return and approval',async({page,browser})=>{
  test.setTimeout(90000);
@@ -17,7 +17,7 @@ test('uploaded originals, exact citations, revisions, human return and approval'
  await expect(page.getByRole('button',{name:'Submit for Review',exact:true})).toBeVisible();
  await expect(page.locator('.citation-chip')).toHaveCount(2);
  await page.getByRole('button',{name:'Source [1]',exact:true}).click();
- await expect(page.getByRole('dialog').locator('mark')).toContainText('DEMO ONLY');
+ await expect(page.getByRole('dialog').locator('mark')).toContainText('Supporting records');
  await expect(page.getByRole('dialog').locator('iframe')).toHaveAttribute('src',/#page=1$/);
  await page.screenshot({path:'../../docs/screenshots/document-citations.png',fullPage:true});
  await page.getByRole('button',{name:'Close dialog',exact:true}).click();

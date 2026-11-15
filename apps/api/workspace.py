@@ -219,7 +219,10 @@ def profile(user: User = Depends(current), session: Session = Depends(db)):
         "contact_email": value.contact_email if value else "",
         "office_address": value.office_address if value else "",
         "bio": value.bio if value else "",
-        "avatar_url": "/api/workspace/profile/avatar" if value and value.avatar else None,
+        "avatar_url": "/api/workspace/profile/avatar?v="
+        + hashlib.sha256(value.avatar).hexdigest()[:12]
+        if value and value.avatar
+        else None,
         "identity_status": "Fictional demo account; official employment not verified",
     }
 
@@ -351,6 +354,8 @@ def get_preferences(user: User = Depends(current), session: Session = Depends(db
 def set_preferences(
     data: PreferencesInput, user: User = Depends(current), session: Session = Depends(db)
 ):
+    if not data.draft_only_actions:
+        raise HTTPException(422, "Human confirmation is mandatory for consequential agent actions")
     if data.notifications.get("security") is False:
         raise HTTPException(422, "Security notifications are mandatory")
     allowed = {
@@ -895,6 +900,11 @@ def read_notification(id: str, user: User = Depends(current), session: Session =
 
 
 def allowed_tool(tool, user, session):
+    from configured_tools import ToolConfiguration
+
+    config = session.scalar(select(ToolConfiguration).where(ToolConfiguration.tool_id == tool.id))
+    if config and user.role not in config.roles:
+        return False
     if tool.department_id and session.get(Department, tool.department_id).name != user.department:
         return False
     return not tool.required_role or user.role == tool.required_role
@@ -966,6 +976,20 @@ def tools(
         result.sort(key=lambda v: (v["position"], v["title"]))
     elif tab == "recent":
         result.sort(key=lambda v: v["last_used"], reverse=True)
+    if tab == "recommended":
+        curated = {
+            "pension": 100,
+            "documents": 95,
+            "tasks": 90,
+            "outreach": 85,
+            "grievances": 80,
+            "projects": 75,
+            "approvals": 70,
+        }
+        result.sort(
+            key=lambda item: (curated.get(item["id"], 0), item["last_used"] or 0), reverse=True
+        )
+        result = result[:6]
     return result
 
 
@@ -1406,7 +1430,65 @@ def workspace_search(q: str, user: User = Depends(current), session: Session = D
                 "snippet": "Your private conversation",
             }
         )
-    return results[:100]
+    from work import Case, Meeting, Project, Task, project_access, task_access
+
+    for item in session.scalars(select(Project).where(Project.department == user.department)):
+        try:
+            project_access(item.id, user, session)
+        except HTTPException:
+            continue
+        if q.lower() in (item.title + " " + item.purpose).lower():
+            results.append(
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "kind": "projects",
+                    "url": "/projects/" + item.id,
+                    "snippet": item.purpose[:180],
+                }
+            )
+    for item in session.scalars(select(Task).where(Task.department == user.department)):
+        try:
+            task_access(item.id, user, session)
+        except HTTPException:
+            continue
+        if q.lower() in (item.title + " " + item.description).lower():
+            results.append(
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "kind": "tasks",
+                    "url": "/tasks/" + item.id,
+                    "snippet": item.description[:180],
+                }
+            )
+    for item in session.scalars(select(Case).where(Case.department == user.department)):
+        if q.lower() in (item.subject + " " + item.response + " " + str(item.details)).lower():
+            results.append(
+                {
+                    "id": item.id,
+                    "title": item.subject,
+                    "kind": item.kind,
+                    "url": "/department/" + item.kind + "/" + item.id,
+                    "snippet": item.reference + " / " + item.status,
+                }
+            )
+    for item in session.scalars(select(Meeting)):
+        try:
+            project_access(item.project_id, user, session)
+        except HTTPException:
+            continue
+        if q.lower() in (item.title + " " + item.agenda).lower():
+            results.append(
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "kind": "meeting",
+                    "url": "/projects/" + item.project_id,
+                    "snippet": item.agenda[:180],
+                }
+            )
+    return list({(item["kind"], item["id"]): item for item in results}.values())[:100]
 
 
 @router.get("/admin/support")
@@ -1445,3 +1527,24 @@ def answer_ticket(
     audit(session, user, "support:respond:" + id)
     session.commit()
     return {"saved": True}
+
+
+def reviewer_in_scope(identity, department, session):
+    if not identity:
+        return None
+    memberships = session.scalars(select(Membership).where(Membership.user_id == identity.id)).all()
+    valid = not memberships and identity.role == "reviewer" and identity.department == department
+    for membership in memberships:
+        if (
+            active(membership)
+            and membership.role == "reviewer"
+            and session.get(Department, membership.department_id).name == department
+        ):
+            valid = True
+    return (
+        SimpleNamespace(
+            id=identity.id, email=identity.email, department=department, role="reviewer"
+        )
+        if valid
+        else None
+    )

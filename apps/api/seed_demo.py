@@ -32,6 +32,9 @@ def seed():
         from workspace import seed_workspace
 
         seed_workspace(session)
+        from work import seed_legacy_work
+
+        seed_legacy_work(session)
 
 
 if __name__ == "__main__":

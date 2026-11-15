@@ -1,7 +1,7 @@
-﻿'use client';
+'use client';
 import {useState} from 'react';
 import {useRouter} from 'next/navigation';
-import {api,ApiError,setCsrf} from '../lib/api';
+import {api,setCsrf} from '../lib/api';
 import {Brand} from './icons';
 import {Feedback,useAction} from './ui';
 import {useSession} from './session-provider';

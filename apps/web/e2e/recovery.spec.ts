@@ -1,4 +1,4 @@
-﻿import {test,expect} from '@playwright/test';
+import {test,expect} from '@playwright/test';
 test.describe.configure({mode:'serial'});
 async function ready(page:import('@playwright/test').Page,path='/'){
  await page.goto(path);await expect(page.getByRole('combobox',{name:'Active department and division'})).toBeVisible();
@@ -34,6 +34,7 @@ test('shell hierarchy, lotus, account navigation and profile persistence',async(
  await page.getByLabel('Text size',{exact:true}).selectOption('standard');await page.getByRole('button',{name:'Save preferences',exact:true}).click();
 });
 test('customize favourites, reordering, requests and distinct connected state',async({page})=>{
+ const requestName='DEMO recovery checklist '+Date.now();
  await ready(page,'/customize?tab=all');
  await expect(page.getByRole('heading',{name:'Document workspace',exact:true})).toBeVisible();
  await page.screenshot({path:'../../docs/screenshots/customize-all.png',fullPage:true});
@@ -52,11 +53,11 @@ test('customize favourites, reordering, requests and distinct connected state',a
  await expect(page.getByRole('heading',{name:'Recommended for you'})).toBeVisible();
  await page.screenshot({path:'../../docs/screenshots/customize-recommended.png',fullPage:true});
  await page.getByRole('button',{name:'Request a New Tool',exact:true}).click();
- await page.getByRole('textbox',{name:'Tool name',exact:true}).fill('Demo recovery checklist');
+ await page.getByRole('textbox',{name:'Tool name',exact:true}).fill(requestName);
  await page.getByRole('textbox',{name:'What do you need it for?',exact:true}).fill('A fictional checklist for the browser recovery scenario.');
  await page.getByRole('button',{name:'Submit tool request',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
- await expect(page.getByText('Demo recovery checklist',{exact:true})).toBeVisible();
+ await expect(page.getByText(requestName,{exact:true})).toBeVisible();
 });
 test('mobile drawer and profile deep link survive reload without overflow',async({page})=>{
  await page.setViewportSize({width:390,height:844});await ready(page,'/profile?section=profile');
